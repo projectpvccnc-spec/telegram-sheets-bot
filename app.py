@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from telegram import Update
 
-from bot import build_application, configure_logging, require_env
+from bot import build_application, configure_bot_commands, configure_logging, require_env
 
 load_dotenv()
 configure_logging()
@@ -28,6 +28,7 @@ async def startup() -> None:
         require_env("GOOGLE_APPLICATION_CREDENTIALS")
 
     await telegram_app.initialize()
+    await configure_bot_commands(telegram_app.bot)
     await telegram_app.start()
 
     webhook_url = get_webhook_url()
