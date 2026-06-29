@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import gspread
 from dotenv import load_dotenv
-from telegram import ReplyKeyboardRemove, Update
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -19,6 +19,11 @@ from telegram.ext import (
 NAME, PHONE, REQUEST_TEXT = range(3)
 
 HEADERS = ["Дата", "Telegram ID", "Username", "Имя", "Телефон", "Заявка"]
+START_BUTTON = "Старт"
+
+
+def start_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([[START_BUTTON]], resize_keyboard=True)
 
 
 def require_env(name: str) -> str:
@@ -108,7 +113,15 @@ async def collect_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
-    await update.message.reply_text("Заполнение заявки отменено.")
+    await update.message.reply_text("Заполнение заявки отменено.", reply_markup=start_keyboard())
+    return ConversationHandler.END
+
+
+async def show_start_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text(
+        "Нажмите кнопку «Старт», чтобы оставить заявку.",
+        reply_markup=start_keyboard(),
+    )
     return ConversationHandler.END
 
 
@@ -125,7 +138,10 @@ def build_application() -> Application:
     application = Application.builder().token(token).build()
 
     conversation = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex(f"^{START_BUTTON}$"), start),
+        ],
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_name)],
             PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_phone)],
@@ -136,6 +152,7 @@ def build_application() -> Application:
 
     application.add_handler(conversation)
     application.add_handler(CommandHandler("cancel", cancel))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, show_start_button))
     return application
 
 
