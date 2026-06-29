@@ -101,7 +101,7 @@ def is_blacklisted(user_id: int | None) -> bool:
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton("Оставить заявку", callback_data=START_CALLBACK)],
+        [InlineKeyboardButton("Старт", callback_data=START_CALLBACK)],
         [
             InlineKeyboardButton("Мои заявки", callback_data="my_requests"),
             InlineKeyboardButton("Контакты", callback_data="contacts"),
@@ -167,7 +167,7 @@ def confirm_keyboard() -> InlineKeyboardMarkup:
 
 
 def after_submit_keyboard(request_number: str) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton("Оставить еще заявку", callback_data=START_CALLBACK)]]
+    rows = [[InlineKeyboardButton("Старт", callback_data=START_CALLBACK)]]
     whatsapp_url = os.getenv("WHATSAPP_URL")
     payment_url = os.getenv("PAYMENT_URL")
     if whatsapp_url:
@@ -315,8 +315,7 @@ def duplicate_count(user_id: int, data: dict) -> int:
 async def send_main_menu(update: Update, text: str | None = None) -> int:
     message = text or (
         "<b>Бот заявок</b>\n\n"
-        "Здесь можно оставить заявку, посмотреть свои обращения, контакты и помощь.\n"
-        "Нажмите кнопку ниже."
+        "Нажмите «Старт», чтобы запустить заявку."
     )
 
     if update.callback_query:
@@ -584,7 +583,7 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        "Нажмите «Оставить заявку», заполните форму и подтвердите отправку. "
+        "Нажмите «Старт», заполните форму и подтвердите отправку. "
         "После этого заявка появится в таблице.",
         reply_markup=main_menu_keyboard(),
     )
