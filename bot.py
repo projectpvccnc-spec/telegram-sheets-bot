@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import gspread
 from dotenv import load_dotenv
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram import Bot, BotCommand, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -19,7 +19,7 @@ from telegram.ext import (
 NAME, PHONE, REQUEST_TEXT = range(3)
 
 HEADERS = ["Дата", "Telegram ID", "Username", "Имя", "Телефон", "Заявка"]
-START_BUTTON = "Старт"
+START_BUTTON = "/start"
 
 
 def start_keyboard() -> ReplyKeyboardMarkup:
@@ -119,10 +119,23 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def show_start_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "Нажмите кнопку «Старт», чтобы оставить заявку.",
+        "Нажмите кнопку /start, чтобы оставить заявку.",
         reply_markup=start_keyboard(),
     )
     return ConversationHandler.END
+
+
+async def configure_bot_commands(bot: Bot) -> None:
+    await bot.set_my_commands(
+        [
+            BotCommand("start", "Оставить заявку"),
+            BotCommand("cancel", "Отменить заполнение"),
+        ]
+    )
+
+
+async def post_init(application: Application) -> None:
+    await configure_bot_commands(application.bot)
 
 
 def configure_logging() -> None:
@@ -135,12 +148,11 @@ def configure_logging() -> None:
 
 def build_application() -> Application:
     token = require_env("TELEGRAM_BOT_TOKEN")
-    application = Application.builder().token(token).build()
+    application = Application.builder().token(token).post_init(post_init).build()
 
     conversation = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
-            MessageHandler(filters.Regex(f"^{START_BUTTON}$"), start),
         ],
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_name)],
