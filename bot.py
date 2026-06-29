@@ -1,7 +1,9 @@
 import asyncio
+import html
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 import gspread
@@ -17,15 +19,28 @@ from telegram.ext import (
     filters,
 )
 
-NAME, PHONE, REQUEST_TEXT = range(3)
+NAME, PHONE, REQUEST_TEXT, CONFIRM = range(4)
 
 HEADERS = ["Дата", "Telegram ID", "Username", "Имя", "Телефон", "Заявка"]
 START_CALLBACK = "start_form"
+CONFIRM_CALLBACK = "confirm_form"
+RESTART_CALLBACK = "restart_form"
+CANCEL_CALLBACK = "cancel_form"
 
 
 def start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("Оставить заявку", callback_data=START_CALLBACK)]]
+    )
+
+
+def confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Отправить заявку", callback_data=CONFIRM_CALLBACK)],
+            [InlineKeyboardButton("Заполнить заново", callback_data=RESTART_CALLBACK)],
+            [InlineKeyboardButton("Отменить", callback_data=CANCEL_CALLBACK)],
+        ]
     )
 
 
@@ -65,43 +80,116 @@ def get_worksheet():
     return worksheet
 
 
-async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.clear()
+def normalize_phone(text: str) -> str:
+    return re.sub(r"[^\d+]", "", text.strip())
+
+
+def is_valid_phone(phone: str) -> bool:
+    digits = re.sub(r"\D", "", phone)
+    return 7 <= len(digits) <= 15
+
+
+def summary_text(context: ContextTypes.DEFAULT_TYPE) -> str:
+    return (
+        "<b>Проверьте заявку</b>\n\n"
+        f"<b>Имя:</b> {html.escape(context.user_data['name'])}\n"
+        f"<b>Телефон:</b> {html.escape(context.user_data['phone'])}\n"
+        f"<b>Заявка:</b> {html.escape(context.user_data['request_text'])}\n\n"
+        "Если все верно, нажмите кнопку отправки."
+    )
+
+
+async def send_main_menu(update: Update, text: str | None = None) -> int:
+    message = text or (
+        "<b>Заявка в один чат</b>\n\n"
+        "Нажмите кнопку ниже, заполните 3 коротких шага, "
+        "и заявка попадет в таблицу."
+    )
 
     if update.callback_query:
         query = update.callback_query
         await query.answer()
-        await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text(
-            "Здравствуйте! Оставим заявку. Как вас зовут?",
-            reply_markup=ReplyKeyboardRemove(),
+        await query.edit_message_text(
+            message,
+            reply_markup=start_keyboard(),
+            parse_mode="HTML",
         )
     else:
         await update.message.reply_text(
-            "Здравствуйте! Оставим заявку. Как вас зовут?",
+            message,
+            reply_markup=start_keyboard(),
+            parse_mode="HTML",
+        )
+
+    return ConversationHandler.END
+
+
+async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.clear()
+
+    text = "<b>Шаг 1 из 3</b>\nКак вас зовут?"
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text(text, parse_mode="HTML")
+    else:
+        await update.message.reply_text(
+            text,
             reply_markup=ReplyKeyboardRemove(),
+            parse_mode="HTML",
         )
 
     return NAME
 
 
 async def collect_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["name"] = update.message.text.strip()
-    await update.message.reply_text("Укажите номер телефона для связи.")
+    name = update.message.text.strip()
+    if len(name) < 2:
+        await update.message.reply_text("Напишите имя чуть подробнее.")
+        return NAME
+
+    context.user_data["name"] = name
+    await update.message.reply_text(
+        "<b>Шаг 2 из 3</b>\nУкажите номер телефона для связи.",
+        parse_mode="HTML",
+    )
     return PHONE
 
 
 async def collect_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["phone"] = update.message.text.strip()
-    await update.message.reply_text("Кратко опишите заявку.")
+    phone = normalize_phone(update.message.text)
+    if not is_valid_phone(phone):
+        await update.message.reply_text(
+            "Похоже, номер введен не полностью. Напишите телефон еще раз."
+        )
+        return PHONE
+
+    context.user_data["phone"] = phone
+    await update.message.reply_text(
+        "<b>Шаг 3 из 3</b>\nКратко опишите заявку.",
+        parse_mode="HTML",
+    )
     return REQUEST_TEXT
 
 
 async def collect_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["request_text"] = update.message.text.strip()
+    request_text = update.message.text.strip()
+    if len(request_text) < 3:
+        await update.message.reply_text("Опишите заявку чуть подробнее.")
+        return REQUEST_TEXT
 
+    context.user_data["request_text"] = request_text
+    await update.message.reply_text(
+        summary_text(context),
+        reply_markup=confirm_keyboard(),
+        parse_mode="HTML",
+    )
+    return CONFIRM
+
+
+def build_row(update: Update, context: ContextTypes.DEFAULT_TYPE) -> list[str]:
     user = update.effective_user
-    row = [
+    return [
         datetime.now(timezone.utc).isoformat(timespec="seconds"),
         str(user.id),
         user.username or "",
@@ -110,34 +198,48 @@ async def collect_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data["request_text"],
     ]
 
+
+async def confirm_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
     try:
         worksheet = get_worksheet()
-        worksheet.append_row(row, value_input_option="USER_ENTERED")
+        worksheet.append_row(build_row(update, context), value_input_option="USER_ENTERED")
     except Exception:
         logging.exception("Failed to save lead")
-        await update.message.reply_text(
-            "Заявку не удалось сохранить. Попробуйте позже или напишите администратору.",
+        await query.edit_message_text(
+            "Заявку не удалось сохранить. Попробуйте позже.",
             reply_markup=start_keyboard(),
         )
         return ConversationHandler.END
 
-    await update.message.reply_text("Спасибо! Заявка принята.", reply_markup=start_keyboard())
     context.user_data.clear()
+    await query.edit_message_text(
+        "<b>Заявка принята.</b>\nМы свяжемся с вами в ближайшее время.",
+        reply_markup=start_keyboard(),
+        parse_mode="HTML",
+    )
     return ConversationHandler.END
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
-    await update.message.reply_text("Заполнение заявки отменено.", reply_markup=start_keyboard())
+
+    if update.callback_query:
+        await send_main_menu(update, "<b>Заполнение отменено.</b>\nМожно начать заново.")
+    else:
+        await update.message.reply_text(
+            "<b>Заполнение отменено.</b>\nМожно начать заново.",
+            reply_markup=start_keyboard(),
+            parse_mode="HTML",
+        )
+
     return ConversationHandler.END
 
 
 async def show_start_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "Нажмите кнопку ниже, чтобы оставить заявку.",
-        reply_markup=start_keyboard(),
-    )
-    return ConversationHandler.END
+    return await send_main_menu(update)
 
 
 async def configure_bot_commands(bot: Bot) -> None:
@@ -169,8 +271,15 @@ def build_application() -> Application:
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_name)],
             PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_phone)],
             REQUEST_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_request)],
+            CONFIRM: [
+                CallbackQueryHandler(confirm_request, pattern=f"^{CONFIRM_CALLBACK}$"),
+                CallbackQueryHandler(ask_name, pattern=f"^{RESTART_CALLBACK}$"),
+            ],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            CallbackQueryHandler(cancel, pattern=f"^{CANCEL_CALLBACK}$"),
+        ],
         allow_reentry=True,
     )
 
