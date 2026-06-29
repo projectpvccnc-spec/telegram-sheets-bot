@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: telegram-sheets-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:api --host 0.0.0.0 --port $PORT
+    autoDeployTrigger: commit
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: GOOGLE_SPREADSHEET_ID
+        value: 13x-dohohwJJ27xyhw-8CFMen5a4-msq8sXxTMdD8Rc8
+      - key: GOOGLE_WORKSHEET_NAME
+        value: Заявки
