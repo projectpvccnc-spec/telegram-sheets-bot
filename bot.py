@@ -264,7 +264,7 @@ def build_application() -> Application:
 
     conversation = ConversationHandler(
         entry_points=[
-            CommandHandler("start", ask_name),
+            CommandHandler("start", send_main_menu),
             CallbackQueryHandler(ask_name, pattern=f"^{START_CALLBACK}$"),
         ],
         states={
