@@ -6,9 +6,10 @@ from datetime import datetime, timezone
 
 import gspread
 from dotenv import load_dotenv
-from telegram import Bot, BotCommand, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     ConversationHandler,
@@ -19,11 +20,13 @@ from telegram.ext import (
 NAME, PHONE, REQUEST_TEXT = range(3)
 
 HEADERS = ["Дата", "Telegram ID", "Username", "Имя", "Телефон", "Заявка"]
-START_BUTTON = "/start"
+START_CALLBACK = "start_form"
 
 
-def start_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup([[START_BUTTON]], resize_keyboard=True)
+def start_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Оставить заявку", callback_data=START_CALLBACK)]]
+    )
 
 
 def require_env(name: str) -> str:
@@ -62,12 +65,23 @@ def get_worksheet():
     return worksheet
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
-    await update.message.reply_text(
-        "Здравствуйте! Оставим заявку. Как вас зовут?",
-        reply_markup=ReplyKeyboardRemove(),
-    )
+
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            "Здравствуйте! Оставим заявку. Как вас зовут?",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+    else:
+        await update.message.reply_text(
+            "Здравствуйте! Оставим заявку. Как вас зовут?",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+
     return NAME
 
 
@@ -102,11 +116,12 @@ async def collect_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except Exception:
         logging.exception("Failed to save lead")
         await update.message.reply_text(
-            "Заявку не удалось сохранить. Попробуйте позже или напишите администратору."
+            "Заявку не удалось сохранить. Попробуйте позже или напишите администратору.",
+            reply_markup=start_keyboard(),
         )
         return ConversationHandler.END
 
-    await update.message.reply_text("Спасибо! Заявка принята.")
+    await update.message.reply_text("Спасибо! Заявка принята.", reply_markup=start_keyboard())
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -119,19 +134,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def show_start_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "Нажмите кнопку /start, чтобы оставить заявку.",
+        "Нажмите кнопку ниже, чтобы оставить заявку.",
         reply_markup=start_keyboard(),
     )
     return ConversationHandler.END
 
 
 async def configure_bot_commands(bot: Bot) -> None:
-    await bot.set_my_commands(
-        [
-            BotCommand("start", "Оставить заявку"),
-            BotCommand("cancel", "Отменить заполнение"),
-        ]
-    )
+    await bot.delete_my_commands()
 
 
 async def post_init(application: Application) -> None:
@@ -152,7 +162,8 @@ def build_application() -> Application:
 
     conversation = ConversationHandler(
         entry_points=[
-            CommandHandler("start", start),
+            CommandHandler("start", ask_name),
+            CallbackQueryHandler(ask_name, pattern=f"^{START_CALLBACK}$"),
         ],
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_name)],
@@ -160,6 +171,7 @@ def build_application() -> Application:
             REQUEST_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_request)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,
     )
 
     application.add_handler(conversation)
