@@ -1,11 +1,13 @@
 # Telegram заявки -> Google Sheets
 
-Telegram-бот, который собирает заявку по шагам и записывает ее в Google Sheets.
+Telegram-бот, который собирает заявку по шагам и записывает ее в Google Sheets. Фото и файлы загружаются в Google Drive.
 
 ## Что умеет
 
 - `/start` начинает новую заявку.
-- Бот спрашивает имя, телефон и текст заявки.
+- Бот предлагает выбрать язык: **Русский / Қазақша / English**.
+- Бот спрашивает категорию, имя, телефон, описание заявки, фото/файлы, локацию и удобное время связи.
+- Фото и документы автоматически загружаются в Google Drive — в таблице хранятся прямые ссылки.
 - Данные сохраняются в Google Sheets.
 - Пользователь получает подтверждение.
 - На Render работает как Web Service через Telegram webhook.
@@ -44,6 +46,7 @@ TELEGRAM_BOT_TOKEN=токен_из_BotFather
 GOOGLE_APPLICATION_CREDENTIALS=service-account.json
 GOOGLE_SPREADSHEET_ID=id_таблицы
 GOOGLE_WORKSHEET_NAME=Заявки
+GOOGLE_DRIVE_FOLDER_ID=id_папки_в_Drive  # опционально
 ```
 
 Для Render вместо файла `service-account.json` используется переменная:
@@ -57,6 +60,16 @@ GOOGLE_SERVICE_ACCOUNT_JSON={...полный JSON service account...}
 ```text
 WEBHOOK_URL=https://your-render-service.onrender.com
 ```
+
+### Google Drive (опционально)
+
+Чтобы фото и файлы сохранялись в Google Drive:
+
+1. Создай папку в Google Drive и скопируй её ID из URL (`https://drive.google.com/drive/folders/<FOLDER_ID>`).
+2. Выдай сервис-аккаунту доступ **Editor** к этой папке.
+3. Задай переменную `GOOGLE_DRIVE_FOLDER_ID`.
+
+Если переменная не задана, файлы загружаются в корень Drive сервис-аккаунта.
 
 ## Деплой на Render
 
@@ -82,6 +95,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON
 WEBHOOK_URL
 GOOGLE_SPREADSHEET_ID
 GOOGLE_WORKSHEET_NAME
+GOOGLE_DRIVE_FOLDER_ID
 ```
 
 `render.yaml` уже содержит шаблон сервиса и обычные переменные.
@@ -91,12 +105,20 @@ GOOGLE_WORKSHEET_NAME
 Если лист пустой, бот сам добавит заголовки:
 
 ```text
-Дата, Telegram ID, Username, Имя, Телефон, Заявка
+Номер, Дата, Статус, Telegram ID, Username, Язык, Категория, Имя, Телефон, Заявка, Фото, Файлы, Локация, Время связи, Менеджер, Комментарий, Дата обработки
 ```
 
 Service account должен иметь доступ `Editor` к таблице.
 
 ## Команды бота
 
-- `/start` - создать заявку
-- `/cancel` - отменить заполнение
+- `/start` — создать заявку
+- `/cancel` — отменить заполнение
+
+## Команды администратора
+
+- `/myid` — узнать свой Telegram ID
+- `/last` — последняя заявка
+- `/today` — количество заявок сегодня
+- `/stats` — статистика по статусам
+- `/broadcast текст` — рассылка всем пользователям
