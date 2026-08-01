@@ -17,3 +17,5 @@ services:
         value: 13x-dohohwJJ27xyhw-8CFMen5a4-msq8sXxTMdD8Rc8
       - key: GOOGLE_WORKSHEET_NAME
         value: Заявки
+      - key: GOOGLE_DRIVE_FOLDER_ID
+        sync: false
